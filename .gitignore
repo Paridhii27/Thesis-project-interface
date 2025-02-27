@@ -1,0 +1,4 @@
+# .env files contain sensitive information like API keys, database passwords, etc. Should be kept private and not tracked in version control for security reasons.
+.env
+
+node_modules

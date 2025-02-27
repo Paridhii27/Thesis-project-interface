@@ -1,0 +1,36 @@
+{
+  "name": "thesis01",
+  "version": "1.0.0",
+  "description": "Thesis project interface which gets machine responses and converts it into sound as well as sends the message to touchdesigner",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "develop": "nodemon index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paridhii27/Thesis-project-interface.git"
+  },
+  "keywords": [
+    "Trust",
+    "Machines",
+    "Decisions",
+    "Sound"
+  ],
+  "author": "Paridhi Garg",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Paridhii27/Thesis-project-interface/issues"
+  },
+  "homepage": "https://github.com/Paridhii27/Thesis-project-interface#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.37.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "elevenlabs": "^1.52.0",
+    "express": "^4.21.2",
+    "nodemon": "^3.1.9",
+    "ws": "^8.18.1"
+  }
+}
