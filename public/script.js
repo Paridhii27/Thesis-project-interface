@@ -18,16 +18,19 @@ async function sendMessage() {
     userInput.value = "";
     statusElement.textContent = "Getting response...";
 
-    const response = await fetch("http://localhost:10000/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: message,
-        conversationHistory: [],
-      }),
-    });
+    const response = await fetch(
+      "https://thesis-project-interface.onrender.com/chat",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: message,
+          conversationHistory: [],
+        }),
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
