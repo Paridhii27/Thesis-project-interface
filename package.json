@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Thesis project interface which gets machine responses and converts it into sound as well as sends the message to touchdesigner",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",

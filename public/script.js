@@ -5,10 +5,6 @@ const statusElement = document.getElementById("status");
 const sendButton = document.getElementById("sendButton");
 // sendButton.addEventListener("click", oscMessageTD);
 
-async function oscBtn(msg) {
-  const url = `${endpoint}?qubit=${qubit}&gate=${gate}`;
-}
-
 async function sendMessage() {
   const message = userInput.value.trim();
   if (!message) return;

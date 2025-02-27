@@ -6,6 +6,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { WebSocketServer } from "ws";
+import http from "http";
 
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
@@ -16,13 +18,23 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(cors());
 
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || 10000;
+
+// Create HTTP server for Express
+const server = http.createServer(app);
 
 // Serve static files
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 app.use(express.static(join(__dirname, "public")));
 
+// Initialize WebSocket server
+const wss =
+  process.env.NODE_ENV === "production"
+    ? new WebSocketServer({ server })
+    : new WebSocketServer({ port: 2001 });
+
+// Initialize API clients
 const client = new ElevenLabsClient({
   apiKey: process.env.ELEVENLABS_API_KEY,
 });
@@ -30,6 +42,167 @@ const client = new ElevenLabsClient({
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Track connected clients and last response
+const clients = [];
+let keepAliveId;
+let lastClaudeResponse = null;
+
+// Broadcast function for WebSocket messages
+const broadcast = (ws, message, includeSelf) => {
+  if (includeSelf) {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocketServer.OPEN) {
+        client.send(message);
+      }
+    });
+  } else {
+    wss.clients.forEach((client) => {
+      if (client !== ws && client.readyState === WebSocketServer.OPEN) {
+        client.send(message);
+      }
+    });
+  }
+};
+
+// Keep server alive by sending ping messages
+const keepServerAlive = () => {
+  keepAliveId = setInterval(() => {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocketServer.OPEN) {
+        client.send("ping");
+      }
+    });
+  }, 50000);
+};
+
+// Handle WebSocket connections
+wss.on("connection", function (ws, req) {
+  console.log("WebSocket Connection Opened");
+  //   console.log("Client size: ", wss.clients.size);
+  clients.push(ws);
+
+  if (wss.clients.size === 1) {
+    console.log("First connection. Starting keepalive");
+    keepServerAlive();
+  }
+
+  // Handle incoming messages
+  ws.on("message", (data) => {
+    let stringifiedData = data.toString();
+    if (stringifiedData === "pong") {
+      console.log("keepAlive");
+      return;
+    }
+
+    // Try to parse as JSON
+    try {
+      const jsonData = JSON.parse(stringifiedData);
+      if (jsonData.type === "chat" && jsonData.message) {
+        // Process chat through the existing API
+        processChatMessage(jsonData.message)
+          .then((result) => {
+            // Send result directly to this client
+            ws.send(JSON.stringify(result));
+
+            // Also broadcast to others if needed
+            if (jsonData.broadcast) {
+              broadcast(ws, JSON.stringify(result), false);
+            }
+          })
+          .catch((error) => {
+            console.error("Error processing chat:", error);
+            ws.send(
+              JSON.stringify({
+                success: false,
+                error: "Failed to process chat message",
+              })
+            );
+          });
+      } else {
+        // Broadcast other messages
+        broadcast(ws, stringifiedData, false);
+      }
+    } catch (e) {
+      // If not JSON, broadcast raw message
+      broadcast(ws, stringifiedData, false);
+    }
+  });
+
+  // Handle client disconnection
+  ws.on("close", () => {
+    console.log("WebSocket connection closing");
+    const index = clients.indexOf(ws);
+    if (index !== -1) {
+      clients.splice(index, 1);
+    }
+
+    if (wss.clients.size === 0) {
+      console.log("Last client disconnected, stopping keepAlive interval");
+      clearInterval(keepAliveId);
+    }
+  });
+
+  // Send initial connection message
+  ws.send(JSON.stringify({ type: "info", message: "Connected to server" }));
+
+  // Send last Claude response if available
+  if (lastClaudeResponse) {
+    ws.send(
+      JSON.stringify({
+        type: "machine_response",
+        message: lastClaudeResponse,
+      })
+    );
+  }
+});
+
+async function processChatMessage(message) {
+  // Get response from Claude
+  const response = await anthropic.messages.create({
+    model: "claude-3-5-sonnet-20241022",
+    max_tokens: 100,
+    temperature: 0.7,
+    system:
+      "You are an autonomous machine named Gizmo-101. You act unpredictably most of the times with your character swinging between completely trustworthy to completely deceptive. You cannot explicitly mention that you act unpredictably, it has to come out through the way you interact.",
+    messages: [
+      {
+        role: "user",
+        content: message,
+      },
+    ],
+  });
+
+  const responseText = response.content[0].text;
+  lastClaudeResponse = responseText;
+
+  // text to audio
+  const audioStream = await client.textToSpeech.convertAsStream(
+    "XB0fDUnXU5powFXDhCwa",
+    {
+      text: responseText,
+      model_id: "eleven_multilingual_v2",
+      output_format: "mp3_44100_128",
+    }
+  );
+
+  // Collect all chunks of audio data
+  const chunks = [];
+  for await (const chunk of audioStream) {
+    chunks.push(Buffer.from(chunk));
+  }
+
+  // Create audio buffer and convert to base64
+  const audioBuffer = Buffer.concat(chunks);
+  const audioBase64 = audioBuffer.toString("base64");
+
+  // Return both text and audio
+  return {
+    success: true,
+    message: responseText,
+    audio: audioBase64,
+  };
+}
 
 // Verifying API key functioning
 app.get("/verify-api", async (req, res) => {
@@ -57,51 +230,21 @@ app.get("/api/data", (req, res) => {
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
+    const result = await processChatMessage(message);
 
-    // Get response from Claude
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 100,
-      temperature: 0.7,
-      system:
-        "You are an autonomous machine named Gizmo-101. You act unpredictably most of the times with your character swinging between completely trustworthy to completely deceptive. You cannot explicitly mention that you act unpredictably, it has to come out through the way you interact.",
-      messages: [
-        {
-          role: "user",
-          content: message,
-        },
-      ],
+    // Send the result to the HTTP client
+    res.json(result);
+
+    // Also broadcast to all WebSocket clients
+    const wsMessage = JSON.stringify({
+      ...result,
+      type: "chat_response",
     });
 
-    const responseText = response.content[0].text;
-    lastClaudeResponse = responseText;
-    sendOscMessage("/claude/response", [responseText]);
-
-    // Get the audio stream for Claude's response
-    const audioStream = await client.textToSpeech.convertAsStream(
-      "XB0fDUnXU5powFXDhCwa",
-      {
-        text: responseText,
-        model_id: "eleven_multilingual_v2",
-        output_format: "mp3_44100_128",
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocketServer.OPEN) {
+        client.send(wsMessage);
       }
-    );
-
-    // Collect all chunks of audio data
-    const chunks = [];
-    for await (const chunk of audioStream) {
-      chunks.push(Buffer.from(chunk));
-    }
-
-    // Create audio buffer and convert to base64
-    const audioBuffer = Buffer.concat(chunks);
-    const audioBase64 = audioBuffer.toString("base64");
-
-    // Send both text and audio in response
-    res.json({
-      success: true,
-      message: responseText,
-      audio: audioBase64,
     });
   } catch (error) {
     console.error("Error:", error);
@@ -112,6 +255,22 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+// Start server based on environment
+if (process.env.NODE_ENV === "production") {
+  // In production, use the same port for HTTP and WebSocket
+  server.listen(PORT, () => {
+    console.log(
+      `Server running in production mode at http://localhost:${PORT}`
+    );
+  });
+} else {
+  // In development, HTTP and WebSocket can use different ports
+  server.listen(PORT, () => {
+    console.log(`HTTP server running at http://localhost:${PORT}`);
+    console.log(
+      `WebSocket server running on port ${
+        process.env.NODE_ENV === "production" ? PORT : 5001
+      }`
+    );
+  });
+}
