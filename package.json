@@ -32,6 +32,7 @@
     "elevenlabs": "^1.52.0",
     "express": "^4.21.2",
     "nodemon": "^3.1.9",
+    "wavesurfer.js": "^7.9.4",
     "ws": "^8.18.1"
   }
 }

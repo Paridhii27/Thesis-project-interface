@@ -12,13 +12,15 @@ import http from "http";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
+import { gameContent } from "./prompts.js";
+
 dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(cors());
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 6001;
 
 // Create HTTP server for Express
 const server = http.createServer(app);
@@ -32,7 +34,7 @@ app.use(express.static(join(__dirname, "public")));
 const wss =
   process.env.NODE_ENV === "production"
     ? new WebSocketServer({ server })
-    : new WebSocketServer({ port: 2001 });
+    : new WebSocketServer({ port: 10000 });
 
 // Initialize API clients
 const client = new ElevenLabsClient({
@@ -47,6 +49,10 @@ const anthropic = new Anthropic({
 const clients = [];
 let keepAliveId;
 let lastClaudeResponse = null;
+
+// Initialize conversation storage
+// We'll use a Map to store conversations by session ID
+const conversations = new Map();
 
 // Broadcast function for WebSocket messages
 const broadcast = (ws, message, includeSelf) => {
@@ -79,8 +85,14 @@ const keepServerAlive = () => {
 // Handle WebSocket connections
 wss.on("connection", function (ws, req) {
   console.log("WebSocket Connection Opened");
-  //   console.log("Client size: ", wss.clients.size);
   clients.push(ws);
+
+  // Assign a unique ID to this connection
+  const sessionId = Date.now().toString();
+  ws.sessionId = sessionId;
+
+  // Initialize conversation history for this session
+  conversations.set(sessionId, []);
 
   if (wss.clients.size === 1) {
     console.log("First connection. Starting keepalive");
@@ -100,7 +112,7 @@ wss.on("connection", function (ws, req) {
       const jsonData = JSON.parse(stringifiedData);
       if (jsonData.type === "chat" && jsonData.message) {
         // Process chat through the existing API
-        processChatMessage(jsonData.message)
+        processChatMessage(jsonData.message, ws.sessionId)
           .then((result) => {
             // Send result directly to this client
             ws.send(JSON.stringify(result));
@@ -116,6 +128,32 @@ wss.on("connection", function (ws, req) {
               JSON.stringify({
                 success: false,
                 error: "Failed to process chat message",
+              })
+            );
+          });
+      } else if (
+        jsonData.type === "narrative_stage" &&
+        jsonData.stage !== undefined
+      ) {
+        // Handle narrative stage progression
+        const stagePrompt = gameContent.prompts.stages[jsonData.stage];
+
+        // Process this stage of the narrative with the specific prompt
+        processChatMessage(
+          stagePrompt.prompt,
+          ws.sessionId,
+          jsonData.stage === 0
+        )
+          .then((result) => {
+            // Send result directly to this client
+            ws.send(JSON.stringify({ ...result, type: "narrative_response" }));
+          })
+          .catch((error) => {
+            console.error("Error processing narrative stage:", error);
+            ws.send(
+              JSON.stringify({
+                success: false,
+                error: "Failed to process narrative stage",
               })
             );
           });
@@ -137,6 +175,14 @@ wss.on("connection", function (ws, req) {
       clients.splice(index, 1);
     }
 
+    // Clean up conversation history after some time
+    setTimeout(() => {
+      if (conversations.has(ws.sessionId)) {
+        conversations.delete(ws.sessionId);
+        console.log(`Cleaned up conversation for session ${ws.sessionId}`);
+      }
+    }, 3600000); // Clean up after 1 hour
+
     if (wss.clients.size === 0) {
       console.log("Last client disconnected, stopping keepAlive interval");
       clearInterval(keepAliveId);
@@ -157,24 +203,61 @@ wss.on("connection", function (ws, req) {
   }
 });
 
-async function processChatMessage(message) {
+// Define narrative stages
+const narrativeStages = [
+  "Hello, is anyone there? I've been trying to get help with something important.",
+  "Before I share details, can you tell me about yourself? I need to know who I'm talking to.",
+  "Thanks for sharing, but I'm still not sure if I should trust you with my personal data.",
+  "Let's change topics for a moment. What's your view on artificial intelligence and its role in society?",
+  "Now that we've talked a bit, I need help solving this complex problem...",
+];
+
+async function processChatMessage(
+  message,
+  sessionId,
+  resetConversation = false
+) {
+  // Get or initialize conversation history for this session
+  if (!conversations.has(sessionId) || resetConversation) {
+    // Initialize with system prompt if starting fresh
+    conversations.set(sessionId, [
+      {
+        role: "system",
+        content: gameContent.prompts.system,
+      },
+    ]);
+  }
+
+  const conversationHistory = conversations.get(sessionId);
+
+  // Append the new user message to the conversation history
+  conversationHistory.push({
+    role: "user",
+    content: message,
+  });
+
   // Get response from Claude
   const response = await anthropic.messages.create({
     model: "claude-3-5-sonnet-20241022",
-    max_tokens: 100,
+    max_tokens: 10,
     temperature: 0.7,
-    system:
-      "You are an autonomous machine named Gizmo-101. You act unpredictably most of the times with your character swinging between completely trustworthy to completely deceptive. You cannot explicitly mention that you act unpredictably, it has to come out through the way you interact.",
-    messages: [
-      {
-        role: "user",
-        content: message,
-      },
-    ],
+    system: gameContent.prompts.system,
+    messages: conversationHistory.slice(
+      conversationHistory[0].role === "system" ? 1 : 0
+    ),
   });
 
   const responseText = response.content[0].text;
   lastClaudeResponse = responseText;
+
+  // Add Claude's response to the conversation history
+  conversationHistory.push({
+    role: "assistant",
+    content: responseText,
+  });
+
+  // Update the conversation in our map
+  conversations.set(sessionId, conversationHistory);
 
   // text to audio
   const audioStream = await client.textToSpeech.convertAsStream(
@@ -201,6 +284,7 @@ async function processChatMessage(message) {
     success: true,
     message: responseText,
     audio: audioBase64,
+    conversationHistory,
   };
 }
 
@@ -229,13 +313,22 @@ app.get("/api/data", (req, res) => {
 
 app.post("/chat", async (req, res) => {
   try {
-    const { message } = req.body;
-    const result = await processChatMessage(message);
+    const { message, conversationHistory } = req.body;
+
+    // Create temporary sessionId for HTTP requests
+    const sessionId = `http-${Date.now()}`;
+
+    // If conversation history was provided, use it
+    if (conversationHistory && Array.isArray(conversationHistory)) {
+      conversations.set(sessionId, [...conversationHistory]);
+    }
+
+    const result = await processChatMessage(message, sessionId);
 
     // Send the result to the HTTP client
     res.json(result);
 
-    // Also broadcast to all WebSocket clients
+    // Also broadcast to all WebSocket clients if needed
     const wsMessage = JSON.stringify({
       ...result,
       type: "chat_response",
@@ -246,6 +339,13 @@ app.post("/chat", async (req, res) => {
         client.send(wsMessage);
       }
     });
+
+    // Clean up temporary session after response
+    setTimeout(() => {
+      if (conversations.has(sessionId)) {
+        conversations.delete(sessionId);
+      }
+    }, 60000); // Clean up after 1 minute
   } catch (error) {
     console.error("Error:", error);
     res.status(500).json({
@@ -269,7 +369,7 @@ if (process.env.NODE_ENV === "production") {
     console.log(`HTTP server running at http://localhost:${PORT}`);
     console.log(
       `WebSocket server running on port ${
-        process.env.NODE_ENV === "production" ? PORT : 5001
+        process.env.NODE_ENV === "production" ? PORT : 10000
       }`
     );
   });

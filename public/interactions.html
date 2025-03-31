@@ -1,0 +1,32 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="./style.css" />
+    <title>This machine is a stranger</title>
+  </head>
+  <body>
+    <div id="narrative-buttons"></div>
+    <div id="interface-elements">
+      <div id="inputs-container">
+        <textarea
+          id="inputText"
+          placeholder="Enter text to respond to Gizmo-101..."
+        ></textarea>
+        <button id="sendButton" onclick="sendMessage()">Send Message</button>
+        <p id="status"></p>
+      </div>
+      <div id="outputs-container">
+        <h2>Conversation</h2>
+        <div id="chatBox"></div>
+        <audio id="audioPlayer" controls style="display: none"></audio>
+      </div>
+    </div>
+    <!-- <h2>Control TD</h2>
+    <input type="range" class="controlTD" />
+    <button id="oscButton" onclick="oscBtn()">Transmit</button> -->
+
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+    <script src="./script.js"></script>
+  </body>
+</html>
