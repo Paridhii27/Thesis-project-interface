@@ -132,6 +132,22 @@ wss.on("connection", function (ws, req) {
             );
           });
       } else if (
+        jsonData.type === "machine_id_click" ||
+        jsonData.type === "machine_manual_click"
+      ) {
+        // Handle machine ID and manual button clicks
+        console.log(`Received ${jsonData.type} from client ${ws.sessionId}`);
+        // Broadcast the action to other clients if needed
+        broadcast(
+          ws,
+          JSON.stringify({
+            type: jsonData.type,
+            action: jsonData.action,
+            timestamp: Date.now(),
+          }),
+          false
+        );
+      } else if (
         jsonData.type === "narrative_stage" &&
         jsonData.stage !== undefined
       ) {

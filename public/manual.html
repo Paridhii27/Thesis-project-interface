@@ -5,24 +5,86 @@
     <link rel="stylesheet" href="./style.css" />
     <title>Machine Manual</title>
   </head>
+
   <body>
     <h1>Get to know the machine</h1>
-    <button id="rules-button">Machine Manual</button>
-    <div class="manual-container">
-      <div class="Machine-ID"></div>
-      <div class="Machine-rules">
-        <p>This is the manual for the machine.</p>
-        <p>
-          The machine is a simple machine that can be used to do simple tasks.
-        </p>
-        <p>The machine is powered by a battery.</p>
-        <p>
-          The machine has a button that can be used to turn on and off the
-          machine.
-        </p>
+    <div class="button-nav">
+      <button id="ID-button" onclick="infoDisplay()">MACHINE ID</button>
+      <button id="manual-button" onclick="rulesDisplay()">
+        MACHINE MANUAL
+      </button>
+    </div>
+
+    <!-- Details about the machine -->
+    <div class="container" id="machine-ID">
+      <div class="menu-container">
+        <h2>Machine ID</h2>
+        <!-- Menu of categories -->
+        <div class="question" data-target="who">About</div>
+        <div class="question" data-target="location">Setting</div>
+        <div class="question" data-target="help">Features</div>
+        <div class="question" data-target="struggle">Signals</div>
+      </div>
+
+      <!-- Container for corresponding answers -->
+      <div class="content-container">
+        <div id="who" class="content">
+          <p>I'm gizmo-0513</p>
+        </div>
+
+        <div id="location" class="content">
+          <p>A forest just before dusk</p>
+          <p id="demo"></p>
+        </div>
+
+        <div id="help" class="content">
+          <p>Autonomous decision making, navigation, and advice.</p>
+        </div>
+
+        <div id="struggle" class="content">
+          <p>Light and sound signals. Mouse movements detection</p>
+        </div>
       </div>
     </div>
-    <button id="next-button">Next</button>
+
+    <!-- Details about how to use the machine -->
+    <div class="container" id="machine-manual">
+      <div class="menu-container">
+        <h2>Machine Manual</h2>
+        <div class="question" data-target="navigation">Navigation</div>
+        <div class="question" data-target="decision-making">
+          Decision-making
+        </div>
+        <div class="question" data-target="advice">Advice</div>
+      </div>
+
+      <div class="content-container">
+        <div id="navigation" class="content">
+          <p>Navigational device</p>
+        </div>
+
+        <div id="decision-making" class="content">
+          <p>Making decisions</p>
+        </div>
+
+        <div id="advice" class="content">
+          <p>Advice for life</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Go to next page for starting experience -->
+    <button id="next-button">NEXT</button>
+    <script>
+      // <p id="demo"></p>
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const seconds = now.getSeconds();
+      document.getElementById(
+        "demo"
+      ).innerHTML = `Current time: ${hours}:${minutes}:${seconds}`;
+    </script>
     <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
     <script src="./script.js"></script>
   </body>

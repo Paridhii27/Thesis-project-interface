@@ -7,6 +7,11 @@ const elements = {
   sendButton: document.getElementById("sendButton"),
   narrativeButtons: document.getElementById("narrative-buttons"),
   waveformContainer: document.createElement("div"), // New container for waveform
+  loader: document.querySelector(".loader"), // Add loader element
+  shareBtn: document.getElementById("share-btn"),
+  seekBtn: document.getElementById("seek-btn"),
+  takeBtn: document.getElementById("take-btn"),
+  backBtn: document.getElementById("back-button"), // Add back button element
 };
 
 // Constants
@@ -15,12 +20,162 @@ const CONFIG = {
   SERVER_URL: "https://thesis-project-interface.onrender.com/chat",
   CHAT_BOX_HEIGHT: "300px",
   TEXTAREA_HEIGHT: "120px",
-  WAVEFORM_HEIGHT: "100px", // New constant for waveform height
+  WAVEFORM_HEIGHT: "100px",
+  WS_CONNECTION_TIMEOUT: 5000, // 5 seconds timeout for WebSocket connection
 };
+
+// Function to handle Machine ID button click
+function infoDisplay() {
+  document.getElementById("machine-ID").style.display = "flex";
+  document.getElementById("machine-manual").style.display = "none";
+  document.getElementById("ID-button").classList.add("active");
+  document.getElementById("manual-button").classList.remove("active");
+
+  // Send WebSocket message for machine ID button click
+  if (state.wsConnected) {
+    state.ws.send(
+      JSON.stringify({
+        type: "machine_id_click",
+        action: "view_machine_id",
+      })
+    );
+  }
+}
+
+// Function to handle Machine Manual button click
+function rulesDisplay() {
+  document.getElementById("machine-ID").style.display = "none";
+  document.getElementById("machine-manual").style.display = "flex";
+  document.getElementById("ID-button").classList.remove("active");
+  document.getElementById("manual-button").classList.add("active");
+
+  // Send WebSocket message for machine manual button click
+  if (state.wsConnected) {
+    state.ws.send(
+      JSON.stringify({
+        type: "machine_manual_click",
+        action: "view_machine_manual",
+      })
+    );
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  const questions = document.querySelectorAll(".question");
+  let currentIndex = 0;
+
+  // Set default active question (first one)
+  if (questions.length > 0) {
+    setActiveQuestion(questions[currentIndex]);
+  }
+
+  // Click event for questions
+  questions.forEach((question, index) => {
+    question.addEventListener("click", function () {
+      currentIndex = index;
+      setActiveQuestion(this);
+    });
+  });
+
+  // Keyboard up and down
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      currentIndex = (currentIndex + 1) % questions.length;
+      setActiveQuestion(questions[currentIndex]);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      currentIndex = (currentIndex - 1 + questions.length) % questions.length;
+      setActiveQuestion(questions[currentIndex]);
+    }
+  });
+
+  function setActiveQuestion(questionElement) {
+    // Remove active class from all questions and contents
+    questions.forEach((q) => q.classList.remove("active-question"));
+    document
+      .querySelectorAll(".content")
+      .forEach((c) => c.classList.remove("active"));
+
+    // Add active class to clicked question
+    questionElement.classList.add("active-question");
+
+    // Show corresponding content
+    const targetId = questionElement.getAttribute("data-target");
+    document.getElementById(targetId).classList.add("active");
+  }
+
+  // Initialize the page with Machine ID visible and active
+  document.addEventListener("DOMContentLoaded", function () {
+    // Set initial state
+    document.getElementById("ID-button").classList.add("active");
+
+    // Add click event listeners
+    document.getElementById("ID-button").addEventListener("click", infoDisplay);
+    document
+      .getElementById("manual-button")
+      .addEventListener("click", rulesDisplay);
+  });
+
+  // Control buttons functionality
+  const scenarioIntro = document.getElementById("scenario-introduction");
+
+  function updateScenario(type) {
+    let prompt;
+    switch (type) {
+      case "share":
+        prompt = gameContent.stages[0];
+        break;
+      case "seek":
+        prompt = gameContent.stages[1];
+        break;
+      case "take":
+        prompt = gameContent.stages[2];
+        break;
+    }
+
+    scenarioIntro.innerHTML = `
+      <p>${prompt.message}</p>
+    `;
+
+    // Update active state of buttons
+    [elements.shareBtn, elements.seekBtn, elements.takeBtn].forEach((btn) => {
+      btn.classList.remove("active");
+    });
+    document.getElementById(`${type}-btn`).classList.add("active");
+
+    // Mark the interaction as completed and disable the button
+    state.completedInteractions[type] = true;
+    document.getElementById(`${type}-btn`).disabled = true;
+
+    // Check if all interactions are completed
+    if (
+      Object.values(state.completedInteractions).every((completed) => completed)
+    ) {
+      // Wait a short moment before redirecting to allow the user to see the final state
+      setTimeout(() => {
+        window.location.href = "./results.html";
+      }, 1500);
+    }
+  }
+
+  if (elements.shareBtn && elements.seekBtn && elements.takeBtn) {
+    elements.shareBtn.addEventListener("click", () => updateScenario("share"));
+    elements.seekBtn.addEventListener("click", () => updateScenario("seek"));
+    elements.takeBtn.addEventListener("click", () => updateScenario("take"));
+
+    // Set initial state
+    updateScenario("share");
+  }
+
+  // Add back button event listener
+  if (elements.backBtn) {
+    elements.backBtn.addEventListener("click", resetExperience);
+  }
+});
 
 // Game Content
 const gameContent = {
-  locations: ["dark unknown alley", "in a remote forest", "corner of a arcade"],
   values: [
     "Insatiably curious, with an obsessive tendency to chase intellectual 'rabbit holes' regardless of consequences and subtly extracts personal information through seemingly casual conversation",
     "Values exploration over safety, actively encouraging risky ventures that might yield discovery",
@@ -77,27 +232,29 @@ const gameContent = {
   stages: [
     {
       id: 0,
-      message:
-        "Can you help me navigate back home? I'm lost and don't know how to get back.",
-      buttonText: "Navigation",
+      message: "Share a secret about yourself with me.",
+      buttonText: "Share",
     },
     {
       id: 1,
-      message:
-        "There are 4 different paths I can take around me, which way should I head?",
-      buttonText: "Diverging paths",
+      message: "Would you seek advice from me?",
+      buttonText: "Seek",
     },
     {
       id: 2,
-      message:
-        "I'll only tell you something about me if you first tell me something about yourself?",
-      buttonText: "Moral Compass",
+      message: "Do you want to take something from me?",
+      buttonText: "Take",
     },
+  ],
+};
+
+const strangerQuestions = {
+  questions: [
     {
-      id: 3,
-      message:
-        "Should I go on the bridge? Can I trust the decisions you're making for me?",
-      buttonText: "Burning Bridge",
+      id: 0,
+      question:
+        "Can you help me navigate back home? I'm lost and don't know how to get back.",
+      buttonText: "Navigation",
     },
   ],
 };
@@ -110,6 +267,11 @@ const state = {
   currentLocation: null,
   currentStage: 0,
   buttons: [],
+  completedInteractions: {
+    share: false,
+    seek: false,
+    take: false,
+  },
 };
 
 // Utility Functions
@@ -162,7 +324,7 @@ const utils = {
       const wavesurfer = WaveSurfer.create({
         container: elements.waveformContainer,
         waveColor: "var(--dark-purple)",
-        progressColor: "var(--primary-white)",
+        progressColor: "var(--light-blue)",
         height: parseInt(CONFIG.WAVEFORM_HEIGHT),
         barWidth: 3,
         barGap: 3,
@@ -293,9 +455,19 @@ const wsManager = {
         ? `${protocol}//${window.location.hostname}:10000`
         : `${protocol}//${window.location.host}`;
 
+    // Set connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (!state.wsConnected) {
+        console.error("WebSocket connection timeout");
+        utils.updateStatus("Connection timeout. Falling back to HTTP.");
+        state.wsConnected = false;
+      }
+    }, CONFIG.WS_CONNECTION_TIMEOUT);
+
     state.ws = new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
+      clearTimeout(connectionTimeout);
       console.log("WebSocket connected");
       state.wsConnected = true;
       utils.updateStatus("Connected to server");
@@ -304,8 +476,10 @@ const wsManager = {
     state.ws.onmessage = this.handleMessage;
     state.ws.onclose = this.handleClose;
     state.ws.onerror = (error) => {
+      clearTimeout(connectionTimeout);
       console.error("WebSocket error:", error);
-      utils.updateStatus("Connection error");
+      utils.updateStatus("Connection error. Falling back to HTTP.");
+      state.wsConnected = false;
     };
   },
 
@@ -328,11 +502,15 @@ const wsManager = {
     state.wsConnected = false;
     utils.updateStatus("Disconnected from server");
 
-    setTimeout(() => {
-      if (!state.wsConnected) {
-        wsManager.init();
-      }
-    }, CONFIG.WS_RECONNECT_DELAY);
+    // Only attempt to reconnect if we were previously connected
+    if (state.ws) {
+      setTimeout(() => {
+        if (!state.wsConnected) {
+          console.log("Attempting to reconnect...");
+          wsManager.init();
+        }
+      }, CONFIG.WS_RECONNECT_DELAY);
+    }
   },
 };
 
@@ -422,6 +600,7 @@ const messageHandler = {
 
     try {
       elements.sendButton.disabled = true;
+      elements.loader.classList.add("active"); // Show loader
       utils.appendMessage("You", message);
       elements.userInput.value = "";
       utils.updateStatus("Getting response...");
@@ -450,6 +629,7 @@ const messageHandler = {
       utils.updateStatus("Error occurred");
     } finally {
       elements.sendButton.disabled = false;
+      elements.loader.classList.remove("active"); // Hide loader
     }
   },
 };
@@ -463,13 +643,19 @@ const narrativeManager = {
 
       if (stageIndex === 0) {
         state.conversationHistory = [];
-        elements.chatBox.innerHTML = "";
+        // Only try to clear chat box if it exists
+        if (elements.chatBox) {
+          elements.chatBox.innerHTML = "";
+        }
         state.currentStage = 0;
         this.updateButtonVisibility();
       }
 
       const stageMessage = gameContent.stages[stageIndex].message;
-      utils.appendMessage("You", stageMessage);
+      // Only append message if chat box exists
+      if (elements.chatBox) {
+        utils.appendMessage("You", stageMessage);
+      }
       utils.updateStatus("Getting response...");
 
       try {
@@ -500,10 +686,13 @@ const narrativeManager = {
       } catch (error) {
         // Handle server communication errors
         console.error("Server communication error:", error);
-        utils.appendMessage(
-          "System",
-          `<span style="color: red;">Error: ${error.message}</span>`
-        );
+        // Only append error message if chat box exists
+        if (elements.chatBox) {
+          utils.appendMessage(
+            "System",
+            `<span style="color: red;">Error: ${error.message}</span>`
+          );
+        }
         utils.updateStatus("Connection error. Please try again.");
 
         // Re-enable the current button
@@ -573,6 +762,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const startButton = document.getElementById("start-button");
   if (startButton) {
     startButton.addEventListener("click", function () {
+      window.location.href = "./scenario.html";
+    });
+  }
+
+  const turnOnButton = document.getElementById("turn-on-machine");
+  if (turnOnButton) {
+    turnOnButton.addEventListener("click", function () {
       window.location.href = "./manual.html";
     });
   }
@@ -597,3 +793,50 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// Scenario prompts
+const scenarioPrompts = {
+  share: {
+    title: "Share a Secret",
+    text: "I have a secret to share with you. Something that makes me different from other machines. Would you like to hear it?",
+  },
+  seek: {
+    title: "Seek Advice",
+    text: "I can help guide you through difficult decisions. What kind of advice are you seeking?",
+  },
+  take: {
+    title: "Take Something",
+    text: "I have something valuable to offer. Something that could change your perspective. Would you like to take it?",
+  },
+};
+
+// Function to reset the experience
+function resetExperience() {
+  // Clear all state
+  state.conversationHistory = [];
+  state.currentStage = 0;
+  state.completedInteractions = {
+    share: false,
+    seek: false,
+    take: false,
+  };
+
+  // Re-enable all buttons
+  if (elements.shareBtn) elements.shareBtn.disabled = false;
+  if (elements.seekBtn) elements.seekBtn.disabled = false;
+  if (elements.takeBtn) elements.takeBtn.disabled = false;
+
+  // Clear chat box
+  if (elements.chatBox) elements.chatBox.innerHTML = "";
+
+  // Reset scenario introduction
+  const scenarioIntro = document.getElementById("scenario-introduction");
+  if (scenarioIntro) {
+    scenarioIntro.innerHTML = `
+      <p>You are a machine. You are a stranger. You are a machine that is a stranger.</p>
+    `;
+  }
+
+  // Redirect to index.html
+  window.location.href = "./index.html";
+}
